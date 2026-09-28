@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+
+# 実の認証情報(実体は ~/.claude-skills-env/ にある)
+.env
+*.env
+!.env.example
+
+# uv が作る隔離venv(スキル配布物ではない)
+.venv/
