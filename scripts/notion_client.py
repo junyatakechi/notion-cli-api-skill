@@ -60,11 +60,6 @@ RETRY_BASE_SEC = 1.0
 RETRY_MAX_SEC = 30.0
 RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 
-DEFAULT_ENV_FILE = os.path.join(
-    os.path.expanduser("~"), ".claude-skills-env", "notion-cli-api-skill.env"
-)
-
-
 # ---------------------------------------------------------------- 例外
 
 class NotionError(RuntimeError):
@@ -72,7 +67,7 @@ class NotionError(RuntimeError):
 
 
 class NotionAuthError(NotionError):
-    """トークンファイルが無い、または NOTION_TOKEN が設定されていない。"""
+    """NOTION_TOKEN が環境変数にも起動フォルダの `.env` にも無い。"""
 
 
 class NotionAPIError(NotionError):
@@ -84,6 +79,37 @@ class NotionAPIError(NotionError):
         self.method = method
         self.path = path
         self.detail = detail
+
+
+# ---------------------------------------------------------------- 環境
+
+# 認証情報と器のURLは、起動フォルダ(作業ディレクトリ)の `.env` に置く。
+# プロジェクトのスキルはこの1つを共有し、キー名で使い分ける。環境変数があればそちらを優先する。
+_env_cache = None
+
+
+def env_file_path():
+    """起動フォルダの `.env` のパス。"""
+    return os.path.join(os.getcwd(), ".env")
+
+
+def load_env(force_reload=False):
+    """起動フォルダの `.env` を KEY=VALUE の dict で返す。同じキーの環境変数があればそれで上書きする。
+    `.env` が無ければ環境変数だけ。一度読んだらプロセス内でキャッシュする。"""
+    global _env_cache
+    if _env_cache is None or force_reload:
+        values = {}
+        path = env_file_path()
+        if os.path.isfile(path):
+            with open(path, encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        k, v = line.split("=", 1)
+                        values[k.strip()] = v.strip()
+        values.update(os.environ)
+        _env_cache = values
+    return _env_cache
 
 
 # ---------------------------------------------------------------- 認証
@@ -100,23 +126,12 @@ def load_token(force_reload=False):
     if _token_cache is not None and not force_reload:
         return _token_cache
 
-    env_file = os.environ.get("NOTION_ENV_FILE", DEFAULT_ENV_FILE)
-    if not os.path.isfile(env_file):
-        raise NotionAuthError(
-            f"Notion token file not found: {env_file}\n"
-            "See the セットアップ section of notion-cli-api-skill/README.md to create it."
-        )
-    token = None
-    with open(env_file, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, _, value = line.partition("=")
-            if key.strip() == "NOTION_TOKEN":
-                token = value.strip().strip('"').strip("'")
+    token = (load_env(force_reload).get("NOTION_TOKEN") or "").strip().strip('"').strip("'")
     if not token:
-        raise NotionAuthError(f"NOTION_TOKEN is not set in {env_file}")
+        raise NotionAuthError(
+            f"NOTION_TOKEN is not set (neither in the environment nor in {env_file_path()})\n"
+            "See the セットアップ section of notion-cli-api-skill/README.md."
+        )
 
     _token_cache = token
     return token
@@ -342,30 +357,13 @@ def create_comment(body):
 
 
 # ---------------------------------------------------------------- 器のURL → 識別子(2026-09-22)
-# 器(DB)と文書のURLは固有の値なので、文書にもスキルにも書かず環境ファイルが持つ。
+# 器(DB)と文書のURLは固有の値なので、文書にもスキルにも書かず起動フォルダの `.env` が持つ。
 # URLから保存先固有の識別子(data source ID)への
 # 解決は横断スキルの機構なのでここに置く。
 import re as _re
 from collections.abc import Mapping as _Mapping
 
-_ENV_FILES = {}
 _DS_BY_DB = {}
-
-
-def load_env_file(name, force_reload=False):
-    """`~/.claude-skills-env/<name>.env` を KEY=VALUE の dict で返す。無ければ空の dict。"""
-    if force_reload or name not in _ENV_FILES:
-        path = os.path.join(os.path.expanduser("~"), ".claude-skills-env", f"{name}.env")
-        values = {}
-        if os.path.isfile(path):
-            with open(path, encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if line and not line.startswith("#") and "=" in line:
-                        k, v = line.split("=", 1)
-                        values[k.strip()] = v.strip()
-        _ENV_FILES[name] = values
-    return _ENV_FILES[name]
 
 
 def page_id_from_url(url):
@@ -392,21 +390,21 @@ def data_source_id_from_url(url, force_reload=False):
 
 
 class EnvDataSources(_Mapping):
-    """器のURL変数 `<PREFIX>_DB_<KEY>_URL` を環境ファイルから読み、data source ID に解決する遅延辞書。
+    """器のURL変数 `<PREFIX>_DB_<KEY>_URL` を環境(`load_env`)から読み、data source ID に解決する遅延辞書。
     Domain層の `DS[entity]` はこれ。キーの一覧は呼び出し側が渡す。"""
 
-    def __init__(self, env_name, prefix, keys):
-        self.env_name, self.prefix, self._keys = env_name, prefix, tuple(keys)
+    def __init__(self, prefix, keys):
+        self.prefix, self._keys = prefix, tuple(keys)
         self._ids = {}
 
     def var(self, key):
         return f"{self.prefix}_DB_{key.upper()}_URL"
 
     def url(self, key):
-        url = load_env_file(self.env_name).get(self.var(key))
+        url = load_env().get(self.var(key))
         if not url:
-            raise NotionError(f"~/.claude-skills-env/{self.env_name}.env に {self.var(key)} が無い"
-                              "(器のURLは環境ファイルが持つ)")
+            raise NotionError(f"環境変数にも {env_file_path()} にも {self.var(key)} が無い"
+                              "(器のURLは .env が持つ)")
         return url
 
     def __getitem__(self, key):

@@ -2,23 +2,19 @@
 # notion-cli-api-skill: bashスクリプト共通処理(トークン読み込み・curl呼び出し)
 set -eu
 
-# 秘密情報はスキル外の $HOME/.claude-skills-env/<skill_name>.env に置く規約。
-# このスキルのskill_nameは notion-cli-api-skill なので notion-cli-api-skill.env が正。
-NOTION_ENV_FILE="${NOTION_ENV_FILE:-$HOME/.claude-skills-env/notion-cli-api-skill.env}"
+# 秘密情報は起動フォルダ(作業ディレクトリ)の .env に置く規約。プロジェクトのスキルはこの1つを共有する。
+# 環境変数 NOTION_TOKEN があればそれを使い、無ければ .env から NOTION_TOKEN の行だけを読む
+# (.env には他のスキルの値も入るので、丸ごと source しない)。
 NOTION_VERSION="2025-09-03"
 NOTION_API_BASE="https://api.notion.com/v1"
 
-if [ ! -f "$NOTION_ENV_FILE" ]; then
-  echo "Error: Notion token file not found: $NOTION_ENV_FILE" >&2
-  echo "See the セットアップ section of ../README.md to create it." >&2
-  exit 1
+if [ -z "${NOTION_TOKEN:-}" ] && [ -f .env ]; then
+  NOTION_TOKEN="$(sed -n 's/^[[:space:]]*NOTION_TOKEN[[:space:]]*=[[:space:]]*//p' .env | tail -n 1 | tr -d '\r' | sed -e 's/[[:space:]]*$//' -e "s/^[\"']//" -e "s/[\"']\$//")"
 fi
 
-# shellcheck disable=SC1090
-. "$NOTION_ENV_FILE"
-
 if [ -z "${NOTION_TOKEN:-}" ]; then
-  echo "Error: NOTION_TOKEN is not set in $NOTION_ENV_FILE" >&2
+  echo "Error: NOTION_TOKEN is not set (neither in the environment nor in $(pwd)/.env)" >&2
+  echo "See the セットアップ section of ../README.md." >&2
   exit 1
 fi
 

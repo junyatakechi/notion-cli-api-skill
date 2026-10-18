@@ -34,7 +34,7 @@ Integrationの作成・ページへの接続・トークンの保存は人の手
 
 | 合図 | 足りないもの |
 |---|---|
-| `NotionAuthError`（scripts では `Notion token file not found` / `NOTION_TOKEN is not set`） | `~/.claude-skills-env/notion-cli-api-skill.env`、またはその中の `NOTION_TOKEN` |
+| `NotionAuthError`（scripts では `Notion token file not found` / `NOTION_TOKEN is not set`） | 起動フォルダの `.env`、またはその中の `NOTION_TOKEN` |
 | あるはずのページ・データソースで `NotionAPIError`（`.status` が404） | そのページへのIntegrationの接続 |
 | コメントの取得・返信で403、または中身の無い結果 | Integrationのコメント権限（→ `references/comments.md`） |
 
@@ -45,7 +45,7 @@ Integrationの作成・ページへの接続・トークンの保存は人の手
 | 使い方 | 向いている場面 | 呼び方 |
 |---|---|---|
 | **モジュールを直接import** | Pythonから呼ぶすべての場面 | `sys.path` に `scripts/` を足して import |
-| **`scripts/` を起動** | シェルからの単発の取得、他言語から | `bash scripts/get_page.sh <id>` 等 |
+| **`scripts/` を起動** | シェルからの単発の取得、他言語から | `bash <skill-dir>/scripts/get_page.sh <id>` 等 |
 
 数百件をsubprocessで回すと、`bash`/`uv` のプロセス起動と一時ファイル生成が件数分積み上がり、
 純オーバーヘッドだけで数分かかる。数百件を一度に投入する用途のために、直接importの経路を
@@ -119,22 +119,22 @@ Notionのデータ形式へ機械的に詰め替えるだけなので、Infrastr
 
 ## 提供するスクリプト
 
-いずれも `$HOME/.claude-skills-env/notion-cli-api-skill.env` から `NOTION_TOKEN` を読み込み、
-`Notion-Version: 2025-09-03` を付けてリクエストする。認証エラー・存在しないID等の
+いずれも環境変数 `NOTION_TOKEN`、無ければ起動フォルダ(プロジェクトのフォルダ直下)の `.env` から
+`NOTION_TOKEN` を読み込み、`Notion-Version: 2025-09-03` を付けてリクエストする。認証エラー・存在しないID等の
 HTTPエラー時はstderrにエラー内容を出し、非zero終了コードで終了する。
+プロジェクトのフォルダから `<skill-dir>/scripts/...` の形で起動する。スキルのフォルダへ cd しない。
 
-読み込み先を一時的に差し替えたい場合(別トークンでの検証など)は、環境変数
-`NOTION_ENV_FILE` に絶対パスを渡せば既定パスより優先される。
+別トークンで一時的に検証したい場合は、環境変数 `NOTION_TOKEN` に渡せば `.env` より優先される。
 
 ### 1. ページ取得: `scripts/get_page.sh <page_id>`
 
 `GET /v1/pages/{page_id}` を叩き、レスポンスJSONをそのまま標準出力する。
 
 ```bash
-scripts/get_page.sh <page ID>
+<skill-dir>/scripts/get_page.sh <page ID>
 ```
 
-### 2. ブロック子取得(再帰): `uv run scripts/get_block_children.py <block_id>`
+### 2. ブロック子取得(再帰): `uv run <skill-dir>/scripts/get_block_children.py <block_id>`
 
 `GET /v1/blocks/{block_id}/children` を叩く。`has_children: true` の子ブロックは
 再帰的に辿り、各ブロックオブジェクトに `children` キー(配列)として埋め込む。
@@ -142,10 +142,10 @@ scripts/get_page.sh <page ID>
 標準出力する。ページ本文全体を取得したい場合は `page_id` をそのまま `block_id` として渡す。
 
 ```bash
-uv run scripts/get_block_children.py <page ID>
+uv run <skill-dir>/scripts/get_block_children.py <page ID>
 ```
 
-### 3. データソースクエリ: `uv run scripts/query_data_source.py <data_source_id> [request_body.json]`
+### 3. データソースクエリ: `uv run <skill-dir>/scripts/query_data_source.py <data_source_id> [request_body.json]`
 
 `POST /v1/data_sources/{data_source_id}/query` を叩く。`request_body.json` に
 `filter`/`sorts`/`page_size` 等を入れたJSONファイルを渡す(省略時はフィルタなしで全件)。
@@ -155,7 +155,7 @@ uv run scripts/get_block_children.py <page ID>
 cat <<'EOF' > /tmp/filter.json
 {"filter": {"property": "形式", "select": {"equals": "Evaluation"}}, "sorts": [{"property": "Executed time", "direction": "descending"}]}
 EOF
-uv run scripts/query_data_source.py <data source ID> /tmp/filter.json
+uv run <skill-dir>/scripts/query_data_source.py <data source ID> /tmp/filter.json
 ```
 
 ### 4. ページ作成: `scripts/create_page.sh <request_body.json>`
@@ -168,7 +168,7 @@ JSONを標準出力する。
 cat <<'EOF' > /tmp/new_page.json
 {"parent": {"data_source_id": "<data source ID>"}, "properties": {"Name": {"title": [{"text": {"content": "テストページ"}}]}}}
 EOF
-scripts/create_page.sh /tmp/new_page.json
+<skill-dir>/scripts/create_page.sh /tmp/new_page.json
 ```
 
 ### 5. ページ更新: `scripts/update_page.sh <page_id> <request_body.json>`
@@ -182,7 +182,7 @@ Notion APIがそのまま受け付ける形式のJSONファイルを渡す。プ
 cat <<'EOF' > /tmp/update.json
 {"properties": {"点数": {"number": 80}}}
 EOF
-scripts/update_page.sh <page ID> /tmp/update.json
+<skill-dir>/scripts/update_page.sh <page ID> /tmp/update.json
 ```
 
 ### 6. ブロック更新: `scripts/update_block.sh <block_id> <request_body.json>`
@@ -196,7 +196,7 @@ JSONを標準出力する。対象の`block_id`は`get_block_children.py`の出�
 cat <<'EOF' > /tmp/update_block.json
 {"numbered_list_item": {"rich_text": [{"type": "text", "text": {"content": "完了タスク: 3件 => 5件 (現在)"}}]}}
 EOF
-scripts/update_block.sh <block ID> /tmp/update_block.json
+<skill-dir>/scripts/update_block.sh <block ID> /tmp/update_block.json
 ```
 
 ## 語彙DBを引く関数は、必ずセッション内でキャッシュする
@@ -544,7 +544,7 @@ for page in query_data_source(ds, {"page_size": 100}):
   一切行わない。それらは呼び出し元のスキル(Collection/Evaluation層)の責務。
   Notion以外の外部API(Googleカレンダー等)もこのスキルの対象外。
 - 認証情報(`NOTION_TOKEN`)はこのスキルディレクトリ内に絶対に含めない。常に
-  `~/.claude-skills-env/notion-cli-api-skill.env` を都度読み込むだけにする。
+  起動フォルダの `.env` を都度読み込むだけにする。
 - Notion REST APIのレート制限(約3req/s)は`notion_client.py`が全リクエストで一括して面倒を
   見る(前回リクエストからの経過を見て0.35秒に足りない分だけ待つ)。scripts経由でもimport経由でも
   同じ経路を通るので、**呼び出し側で`time.sleep`を入れない**。

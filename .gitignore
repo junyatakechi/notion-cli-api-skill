@@ -1,7 +1,7 @@
 __pycache__/
 *.py[cod]
 
-# 実の認証情報(実体は ~/.claude-skills-env/ にある)
+# 実の認証情報(実体はプロジェクトのフォルダ直下の .env にある。スキルには .env.example だけを置く)
 .env
 *.env
 !.env.example

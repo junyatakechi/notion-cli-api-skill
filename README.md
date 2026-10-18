@@ -54,12 +54,13 @@ uv python install 3.14
 
 1. [Notionのインテグレーション画面](https://www.notion.so/profile/integrations)で Internal Integration を作り、トークン（`ntn_` で始まる。2024-09-25より前に発行したものは `secret_` で始まる）を控える。
 2. 読み書きしたいページやデータベースを開き、右上の「接続」からこのIntegrationを追加する。追加していないページはAPIから見えず、404になる。
-3. トークンを、スキルのフォルダの外にあるファイルへ保存する。`ntn_xxxxxxxx` は控えたトークンに置き換える。キーの名前は同梱の `.env.example` と同じ。
+3. トークンを、プロジェクトのフォルダ直下（Claude Code を起動するフォルダ）の `.env` に書く。この `.env` はプロジェクトのスキルが共有する。`ntn_xxxxxxxx` は控えたトークンに置き換える。キーの名前は同梱の `.env.example` と同じ。同じキーの環境変数があれば、そちらが優先される。
 
    ```bash
-   mkdir -p "$HOME/.claude-skills-env"
-   echo 'NOTION_TOKEN=ntn_xxxxxxxx' > "$HOME/.claude-skills-env/notion-cli-api-skill.env"
+   echo 'NOTION_TOKEN=ntn_xxxxxxxx' >> .env
    ```
+
+   スクリプトは起動したフォルダの `.env` を読むので、プロジェクトのフォルダから `<skill-dir>/scripts/...` の形で起動する。スキルのフォルダへ `cd` しない。
 
 ### コメントに答えてもらうときの準備
 
@@ -134,7 +135,7 @@ create_page({"parent": {"data_source_id": "<data source ID>"}, "properties": {..
 
 - レート制限（約3リクエスト/秒）と、一時的な失敗（429・5xx・タイムアウト）の再試行はモジュールが受け持つ。呼び出し側で `time.sleep` やリトライを書かない。
 - エラーは `sys.exit` ではなく例外（`NotionError` とその派生）で返る。
-- 別のトークンを一時的に使いたいときは、環境変数 `NOTION_ENV_FILE` にファイルの絶対パスを渡す。
+- 別のトークンを一時的に使いたいときは、環境変数 `NOTION_TOKEN` に渡す。`.env` より優先される。
 
 ## Notionのコメントに答えてもらう
 
